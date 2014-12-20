@@ -1,0 +1,86 @@
+﻿$global:Topology = Get-CsTopology
+$global:arrExternalDnsRecords = @()
+$global:arrInternalDnsRecords = @()
+
+function Get-SipDomains {
+	Write-Output "Enumerating SIP domains in current deployment."
+	$SipDomains = @()
+	# Grab all SIP domains from the current deployment and also add the SRV, sip, lyncdiscover, and lyncdiscoverinternal DNS records for each SIP domain to the DNS records lists.
+	$Topology.InternalDomains | Select * -Unique | foreach {
+		$SipDomains += $_.Name
+		$global:arrInternalDnsRecords += "sip.$($_.Name)"
+		$global:arrInternalDnsRecords += "lyncdiscoverinternal.$($_.Name)"
+		$global:arrInternalDnsRecords += "_sipinternaltls._tcp.$($_.Name)"
+		$global:arrExternalDnsRecords += "sip.$($_.Name)"
+		$global:arrExternalDnsRecords += "lyncdiscover.$($_.Name)"
+		$global:arrExternalDnsRecords += "_sip._tls.$($_.Name)"
+		$global:arrExternalDnsRecords += "_sipfederationtls._tcp.$($_.Name)"
+	}
+	#$global:arrInternalDnsRecords
+    #$global:arrExternalDnsRecords
+}
+
+function Resolve-DnsRecords {
+	$global:InternalDnsRecords = @{}
+	$global:ExternalDnsRecords = @{}
+
+	foreach ($DnsRecord in $global:arrInternalDnsRecords | Select -Unique){
+		if ($DnsRecord -match "_"){
+			$NslResults = $null
+			$NslResults = Invoke-Expression "nslookup -type=srv $DnsRecord" | Out-Null
+			$DnsRecordTarget = @()
+			for ($i = 4; $i -lt $NslResults.Count; $i++){$DnsRecordTarget += ($NslResults[$i].Replace("  ","")).Trim()}
+			$log = New-Object psobject
+			$log | Add-Member -MemberType NoteProperty -Name DnsRecord -Value $DnsRecord
+			$log | Add-Member -MemberType NoteProperty -Name IPAddress -Value $IPAddressList
+			$InternalDnsRecords+=$log
+		} else {
+			$IPAddressList = $null
+			Try
+			{
+				$IPAddressList = [System.Net.Dns]::GetHostEntry($DNSRecord).AddressList |  Where { $_.AddressFamily -like "InterNetwork"}
+			}
+			Catch [System.Exception]
+			{
+				$IPAddressList = "Record not found."
+			}
+			$log = New-Object psobject
+			$log | Add-Member -MemberType NoteProperty -Name DnsRecord -Value $DnsRecord
+			$log | Add-Member -MemberType NoteProperty -Name IPAddress -Value $IPAddressList
+			
+			[array]$InternalDnsRecords+=$log
+		}
+	}
+	
+	foreach ($DnsRecord in $global:arrExternalDnsRecords | Select -Unique){
+		if ($DnsRecord -match "_"){
+			$NslResults = $null
+			$NslResults = Invoke-Expression "nslookup -type=srv $DnsRecord 8.8.8.8"
+			$DnsRecordTarget = @()
+			for ($i = 4; $i -lt $NslResults.Count; $i++){$DnsRecordTarget += ($NslResults[$i].Replace("  ","")).Trim() + "`n"}
+			$log = New-Object psobject
+			$log | Add-Member -MemberType NoteProperty -Name DnsRecord -Value $DnsRecord
+			$log | Add-Member -MemberType NoteProperty -Name DNSRecordTarget -Value $DnsRecordTarget
+			$ExternalDnsRecords+=$log
+		} else {
+			$NslResults = $null
+			$NslResults = Invoke-Expression "nslookup $DnsRecord 8.8.8.8"
+			$DnsRecordTarget = @()
+			for ($i = 4; $i -lt ($NslResults.Count - 1); $i++){
+				$Address = $NslResults[$i].Replace("Addresses:","")
+				$Address = $Address.Replace("Address:","")
+				$DnsRecordTarget += $Address.Trim()
+			}
+			$log = New-Object psobject
+			$log | Add-Member -MemberType NoteProperty -Name DnsRecord -Value $DnsRecord
+			$log | Add-Member -MemberType NoteProperty -Name DNSRecordTarget -Value $DnsRecordTarget
+			[array]$ExternalDnsRecords+=$log
+		}
+	}
+	$pathname=(Get-Item -Path ".\" -Verbose).FullName
+	Write-Output "DNS info saved at $pathname\dns.txt"
+	Write-Output "Internal:" $InternalDnsRecords |ft -wrap |Out-File dns.txt
+	Write-Output "External:" $ExternalDnsRecords |ft -Expand |out-file -Append dns.txt 
+}
+Get-SipDomains
+Resolve-DnsRecords

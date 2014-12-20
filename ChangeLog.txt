@@ -1,0 +1,10 @@
+12/9/2014
+
+Bes Mailflow test
+-Updated script to include checks for event 20482 which causes errors - BES will not resolve certain SMTP addresses. If we see this error in a BES environment now, we will failover to the other node, restart bes services, and failback.
+
+Exchange 2010 Database Failover
+-Script now moves cluster groups off of the server that you run the script on by checking MoveClusterGroups. If the groups try to move to a paused/offline node the script will not attempt any moves.
+
+pre/post patching script
+-updates are coming where it will gather the node status from cluster.exe during prepatch. if, for whatever reason, cluster is not UP (ex Paused/offline) there will be an output saying as such. This will happen 1 in a million times but it should be investigated.
